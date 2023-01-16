@@ -16,6 +16,8 @@ contract MVPCLR is Ownable {
     uint256 public id = 0;
     bool public roundOpen;
 
+    address[] public admins;
+    mapping(address => bool) public isAdmin;
     
     mapping(address => uint256) public supporters;
     mapping(uint256 => address) public patrons;
@@ -42,37 +44,26 @@ contract MVPCLR is Ownable {
     event MatchingPoolDonation(address sender, uint256 value);
     event Distribute(address to, uint256 amount);
 
-    function openRound() public onlyOwner {
+    function openRound() public onlyAdmin {
         roundOpen = true;
     }
 
-    function roundClosed() public onlyOwner {
+    function roundClosed() public onlyAdmin {
         roundOpen = false;
     }
 
-    modifier roundIsOpen() {
-        require(roundOpen == true, "Round is closed");
-        _;
-        //getBlockTimestamp() < (roundStart + roundDuration),
-        //"MVPCLR:isRoundOpen - Round is not open"
-    }
-
-    modifier roundIsClosed() {
-        require(roundOpen == false, "Round is open");
-        // roundStart != 0 &&
-        // getBlockTimestamp() >= (roundStart + roundDuration),
-        // "MVPCLR:isRoundClosed Round is not closed"
-        //);
-
-        _;
-    }
-
-    function startRound(uint256 _roundDuration) public onlyOwner {
+    function startRound(uint256 _roundDuration) public onlyAdmin {
         id++;
         require(_roundDuration < 31536000, "MVPCLR: round duration too long");
         roundDuration = _roundDuration;
         roundStart = getBlockTimestamp();
         emit RoundStarted(roundStart, roundDuration);
+    }
+
+    function addAdmin(address _admin) public onlyOwner {
+        admins.push(_admin);
+        isAdmin[_admin] = true;
+    
     }
 
     function getBlockTimestamp() public view returns (uint256) {
@@ -84,7 +75,7 @@ contract MVPCLR is Ownable {
         bytes32 data,
         string memory link,
         string memory ipfsHash
-    ) public onlyOwner {
+    ) public onlyAdmin {
         patrons[patronCount] = addr;
         emit PatronAdded(addr, data, link, ipfsHash, patronCount++);
     }
@@ -125,5 +116,27 @@ contract MVPCLR is Ownable {
             "CLR:receive closed"
         );
         emit MatchingPoolDonation(_msgSender(), msg.value);
+    }
+
+    modifier roundIsOpen() {
+        require(roundOpen == true, "Round is closed");
+        _;
+        //getBlockTimestamp() < (roundStart + roundDuration),
+        //"MVPCLR:isRoundOpen - Round is not open"
+    }
+
+    modifier roundIsClosed() {
+        require(roundOpen == false, "Round is open");
+        // roundStart != 0 &&
+        // getBlockTimestamp() >= (roundStart + roundDuration),
+        // "MVPCLR:isRoundClosed Round is not closed"
+        //);
+
+        _;
+    }
+
+    modifier onlyAdmin() {
+    require(isAdmin[msg.sender] == true, "Not an admin");
+    _;
     }
 }
