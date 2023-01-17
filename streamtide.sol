@@ -14,9 +14,11 @@ contract MVPCLR is Ownable {
     uint256 public roundDuration;
     uint256 public patronCount = 0;
     uint256 public id = 0;
-    bool public roundOpen;
+
 
     address[] public admins;
+    
+
     mapping(address => bool) public isAdmin;
     
     mapping(address => uint256) public supporters;
@@ -45,15 +47,23 @@ contract MVPCLR is Ownable {
     event Distribute(address to, uint256 amount);
 
     function openRound() public onlyAdmin {
-        roundOpen = true;
+        require(roundDuration == 0, "Round is already open");
+        roundDuration = 30*24*60*60; // 1 month 
+        roundStart = getBlockTimestamp();
+        emit RoundStarted(roundStart, roundDuration);
     }
 
-    function roundClosed() public onlyAdmin {
-        roundOpen = false;
+    function closeRound() public onlyAdmin {
+        roundDuration = 0;
     }
+
+    function roundIsClosed() public view returns (bool) {
+        return roundDuration != 0 && roundStart + roundDuration <= getBlockTimestamp();
+    }
+
 
     function startRound(uint256 _roundDuration) public onlyAdmin {
-        id++;
+        id = id +1;
         require(_roundDuration < 31536000, "MVPCLR: round duration too long");
         roundDuration = _roundDuration;
         roundStart = getBlockTimestamp();
@@ -66,6 +76,22 @@ contract MVPCLR is Ownable {
     
     }
 
+    function removeAdmin(address _admin) public onlyOwner {
+    require(isAdmin[_admin], "Admin not found"); // check if the address is an admin
+    uint256 adminIndex;
+    for (uint256 i = 0; i < admins.length; i++) {
+        if (admins[i] == _admin) {
+            adminIndex = i;
+            break;
+        }
+    }
+    delete admins[adminIndex];
+    delete isAdmin[_admin];
+    }
+
+    
+
+
     function getBlockTimestamp() public view returns (uint256) {
         return block.timestamp;
     }
@@ -77,38 +103,38 @@ contract MVPCLR is Ownable {
         string memory ipfsHash
     ) public onlyAdmin {
         patrons[patronCount] = addr;
-        emit PatronAdded(addr, data, link, ipfsHash, patronCount++);
+        emit PatronAdded(addr, data, link, ipfsHash, patronCount);
+        patronCount = patronCount + 1;
     }
 
-    function donate(uint256[] memory patron_indexes, uint256[] memory amounts) public payable roundIsOpen {
+    function donate(uint256[] memory patron_indexes, uint256[] memory amounts) public payable {
+        require(!roundIsClosed(), "Round is closed, Can't donate");
         uint256 total_amount = 0;
         for(uint256 i = 0; i < patron_indexes.length; i++) {
             uint256 patron_index = patron_indexes[i];
             uint256 amount = amounts[i];
-            total_amount += amount;
+            total_amount = total_amount + amount;
             require(patron_index < patronCount, "CLR:donate - Not a valid recipient");
             donations.push(Donation(patrons[patron_index], amount));
             emit Donate(tx.origin, _msgSender(), amount, patron_index, id);
         }
         require(total_amount == msg.value, "amount sent does not match sum of donations");
-        supporters[msg.sender] += total_amount;
+        supporters[_msgSender()] = supporters[_msgSender()] + total_amount;
         // add tip amount in investors mapping
-
     }
 
-    function distribute(
-    ) external onlyOwner roundIsClosed returns(bool) {
+    function distribute(uint256 _maxProcess) external onlyAdmin {
         uint256 processed = 0;
-        while(index_of_last_processed_donation + int256(processed) < int256(donations.length)-1 && processed < 10) {
+        while(index_of_last_processed_donation + int256(processed) < int256(donations.length)-1 && processed < _maxProcess) {
             Donation memory donation = donations[uint256(index_of_last_processed_donation+1)+processed];
             payable(donation.receiver).transfer(donation.amount);
             emit Distribute(donation.receiver, donation.amount);
-            processed++;
+            processed = processed + 1;
         }
         index_of_last_processed_donation += int256(processed);
-        return index_of_last_processed_donation < int256(donations.length)-1;
     }
 
+    
     // receive donation for the matching pool
     receive() external payable {
         require(
@@ -116,23 +142,6 @@ contract MVPCLR is Ownable {
             "CLR:receive closed"
         );
         emit MatchingPoolDonation(_msgSender(), msg.value);
-    }
-
-    modifier roundIsOpen() {
-        require(roundOpen == true, "Round is closed");
-        _;
-        //getBlockTimestamp() < (roundStart + roundDuration),
-        //"MVPCLR:isRoundOpen - Round is not open"
-    }
-
-    modifier roundIsClosed() {
-        require(roundOpen == false, "Round is open");
-        // roundStart != 0 &&
-        // getBlockTimestamp() >= (roundStart + roundDuration),
-        // "MVPCLR:isRoundClosed Round is not closed"
-        //);
-
-        _;
     }
 
     modifier onlyAdmin() {
