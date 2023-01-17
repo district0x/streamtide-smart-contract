@@ -89,9 +89,6 @@ contract MVPCLR is Ownable {
     delete isAdmin[_admin];
     }
 
-    
-
-
     function getBlockTimestamp() public view returns (uint256) {
         return block.timestamp;
     }
@@ -108,7 +105,6 @@ contract MVPCLR is Ownable {
     }
 
     function donate(uint256[] memory patron_indexes, uint256[] memory amounts) public payable {
-        require(!roundIsClosed(), "Round is closed, Can't donate");
         uint256 total_amount = 0;
         for(uint256 i = 0; i < patron_indexes.length; i++) {
             uint256 patron_index = patron_indexes[i];
