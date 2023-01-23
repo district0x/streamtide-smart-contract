@@ -17,11 +17,12 @@ contract MVPCLR is Ownable {
 
 
     address[] public admins;
+    address[] public blacklisted;
     
 
     mapping(address => bool) public isAdmin;
     
-    mapping(address => uint256) public supporters;
+    
     mapping(uint256 => address) public patrons;
 
     Donation[] public donations;
@@ -93,18 +94,39 @@ contract MVPCLR is Ownable {
         return block.timestamp;
     }
 
+    function addToBlacklist(address _address) public onlyAdmin {
+    blacklisted.push(_address);
+    }
+
+    function removeFromBlacklist(address _address) public onlyAdmin {
+        uint256 index;
+        for (uint256 i = 0; i < blacklisted.length; i++) {
+            if (blacklisted[i] == _address) {
+                index = i;
+                break;
+            }
+        }
+        delete blacklisted[index];
+    }
+
     function addPatron(
         address payable addr,
         bytes32 data,
         string memory link,
         string memory ipfsHash
     ) public onlyAdmin {
+        for (uint256 i = 0; i < blacklisted.length; i++) {
+        require(blacklisted[i] != addr, "Patron address is blacklisted");
+        }
         patrons[patronCount] = addr;
         emit PatronAdded(addr, data, link, ipfsHash, patronCount);
         patronCount = patronCount + 1;
     }
 
     function donate(uint256[] memory patron_indexes, uint256[] memory amounts) public payable {
+        for (uint256 i = 0; i < blacklisted.length; i++) {
+        require(blacklisted[i] != _msgSender(), "Sender address is blacklisted");
+         }
         uint256 total_amount = 0;
         for(uint256 i = 0; i < patron_indexes.length; i++) {
             uint256 patron_index = patron_indexes[i];
@@ -113,13 +135,11 @@ contract MVPCLR is Ownable {
             require(patron_index < patronCount, "CLR:donate - Not a valid recipient");
             donations.push(Donation(patrons[patron_index], amount));
             emit Donate(tx.origin, _msgSender(), amount, patron_index, id);
-        }
-        require(total_amount == msg.value, "amount sent does not match sum of donations");
-        supporters[_msgSender()] = supporters[_msgSender()] + total_amount;
-        // add tip amount in investors mapping
+        }     
     }
 
     function distribute(uint256 _maxProcess) external onlyAdmin {
+        require(roundIsClosed(), "Round is still open");
         uint256 processed = 0;
         while(index_of_last_processed_donation + int256(processed) < int256(donations.length)-1 && processed < _maxProcess) {
             Donation memory donation = donations[uint256(index_of_last_processed_donation+1)+processed];
