@@ -10,50 +10,38 @@ struct Donation {
 }
 
 contract MVPCLR is Ownable {
-    uint256 public roundStart;
-    uint256 public roundDuration;
-    uint256 public patronCount = 0;
-    uint256 public id = 0;
-
-
-    address[] public admins;
-    address[] public blacklisted;
     
+    event AdminAdded(address _admin);
+    event AdminRemoved(address _admin);
+    event BlacklistedAdded(address _blacklisted);
+    event BlacklistedRemoved(address _blacklisted);
 
-    mapping(address => bool) public isAdmin;
-    
-    
-    mapping(uint256 => address) public patrons;
+    event PatronAdded(address addr);
 
-    Donation[] public donations;
-    int256 index_of_last_processed_donation = -1;
+    event RoundStarted(uint256 roundStart, uint256 roundId, uint256 roundDuration);
+    event MatchingPoolDonation(address sender, uint256 value);
+    event Distribute(address to, uint256 amount);
 
-    event RoundStarted(uint256 roundStart, uint256 roundDuration);
-    event PatronAdded(
-        address addr,
-        bytes32 data,
-        string link,
-        string ipfsHash,
-        uint256 index
-    );
     event Donate(
         address origin,
         address sender,
         uint256 value,
-        uint256 index,
+        address patronAddress,
         uint256 id
     );
 
-    event MatchingPoolDonation(address sender, uint256 value);
-    event Distribute(address to, uint256 amount);
+    uint256 public roundStart;
+    uint256 public roundDuration;
+    uint256 public patronCount;
+    uint256 id;
 
-    function openRound() public onlyAdmin {
-        require(roundDuration == 0, "Round is already open");
-        roundDuration = 30*24*60*60; // 1 month 
-        roundStart = getBlockTimestamp();
-        emit RoundStarted(roundStart, roundDuration);
-    }
+    mapping(address => bool) public isAdmin;
+    mapping(address => bool) public isPatron;
+    mapping(address => bool) public isBlacklisted;
 
+    Donation[] public donations;
+    int256 index_of_last_processed_donation = -1;
+    
     function closeRound() public onlyAdmin {
         roundDuration = 0;
     }
@@ -68,74 +56,56 @@ contract MVPCLR is Ownable {
         require(_roundDuration < 31536000, "MVPCLR: round duration too long");
         roundDuration = _roundDuration;
         roundStart = getBlockTimestamp();
-        emit RoundStarted(roundStart, roundDuration);
+        emit RoundStarted(roundStart, id, roundDuration);
     }
 
     function addAdmin(address _admin) public onlyOwner {
-        admins.push(_admin);
         isAdmin[_admin] = true;
-    
+        emit AdminAdded(_admin);
     }
 
     function removeAdmin(address _admin) public onlyOwner {
-    require(isAdmin[_admin], "Admin not found"); // check if the address is an admin
-    uint256 adminIndex;
-    for (uint256 i = 0; i < admins.length; i++) {
-        if (admins[i] == _admin) {
-            adminIndex = i;
-            break;
-        }
-    }
-    delete admins[adminIndex];
-    delete isAdmin[_admin];
+        require(isAdmin[_admin], "Admin not found"); // check if the address is an admin
+        delete isAdmin[_admin];
+        emit AdminRemoved(_admin);
     }
 
     function getBlockTimestamp() public view returns (uint256) {
         return block.timestamp;
     }
 
-    function addToBlacklist(address _address) public onlyAdmin {
-    blacklisted.push(_address);
+    function addBlacklisted(address _address) public onlyAdmin {
+        isBlacklisted[_address] = true;
+        emit BlacklistedAdded(_address);
     }
 
-    function removeFromBlacklist(address _address) public onlyAdmin {
-        uint256 index;
-        for (uint256 i = 0; i < blacklisted.length; i++) {
-            if (blacklisted[i] == _address) {
-                index = i;
-                break;
-            }
-        }
-        delete blacklisted[index];
+
+    function removeBlacklisted(address _address) public onlyAdmin {
+        require(isBlacklisted[_address], "Address not blacklisted");
+        delete isBlacklisted[_address];
+        emit BlacklistedRemoved(_address);
     }
 
-    function addPatron(
-        address payable addr,
-        bytes32 data,
-        string memory link,
-        string memory ipfsHash
-    ) public onlyAdmin {
-        for (uint256 i = 0; i < blacklisted.length; i++) {
-        require(blacklisted[i] != addr, "Patron address is blacklisted");
-        }
-        patrons[patronCount] = addr;
-        emit PatronAdded(addr, data, link, ipfsHash, patronCount);
+    function addPatron(address payable addr) public onlyAdmin {
+        require(!isBlacklisted[addr], "Patron address is blacklisted");
+        isPatron[addr] = true;
+        emit PatronAdded(addr);
         patronCount = patronCount + 1;
     }
 
-    function donate(uint256[] memory patron_indexes, uint256[] memory amounts) public payable {
-        for (uint256 i = 0; i < blacklisted.length; i++) {
-        require(blacklisted[i] != _msgSender(), "Sender address is blacklisted");
-         }
-        uint256 total_amount = 0;
-        for(uint256 i = 0; i < patron_indexes.length; i++) {
-            uint256 patron_index = patron_indexes[i];
+    function donate(address[] memory patronAddresses, uint256[] memory amounts) public payable {
+        require(patronAddresses.length == amounts.length, "CLR:donate - Mismatch between number of patrons and amounts");
+        uint256 totalAmount = 0;
+        for (uint256 i = 0; i < patronAddresses.length; i++) {
+            address patronAddress = patronAddresses[i];
             uint256 amount = amounts[i];
-            total_amount = total_amount + amount;
-            require(patron_index < patronCount, "CLR:donate - Not a valid recipient");
-            donations.push(Donation(patrons[patron_index], amount));
-            emit Donate(tx.origin, _msgSender(), amount, patron_index, id);
-        }     
+            totalAmount += amount;
+            require(!isBlacklisted[_msgSender()], "Sender address is blacklisted");
+            require(isPatron[patronAddress], "CLR:donate - Not a valid recipient");
+            donations.push(Donation(patronAddress, amount));
+            emit Donate(tx.origin, _msgSender(), amount, patronAddress, id);
+        }
+         require(totalAmount <= msg.value, "CLR:donate - Total amount donated is greater than the value sent");
     }
 
     function distribute(uint256 _maxProcess) external onlyAdmin {
@@ -148,8 +118,8 @@ contract MVPCLR is Ownable {
             processed = processed + 1;
         }
         index_of_last_processed_donation += int256(processed);
-    }
 
+    }
     
     // receive donation for the matching pool
     receive() external payable {
