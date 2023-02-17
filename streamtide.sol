@@ -27,13 +27,13 @@ contract MVPCLR is Ownable {
         address sender,
         uint256 value,
         address patronAddress,
-        uint256 id
+        uint256 roundId
     );
 
     uint256 public roundStart;
     uint256 public roundDuration;
-    uint256 public patronCount;
-    uint256 id;
+
+    uint256 roundId;
 
     mapping(address => bool) public isAdmin;
     mapping(address => bool) public isPatron;
@@ -52,11 +52,11 @@ contract MVPCLR is Ownable {
 
 
     function startRound(uint256 _roundDuration) public onlyAdmin {
-        id = id +1;
+        roundId = roundId +1;
         require(_roundDuration < 31536000, "MVPCLR: round duration too long");
         roundDuration = _roundDuration;
         roundStart = getBlockTimestamp();
-        emit RoundStarted(roundStart, id, roundDuration);
+        emit RoundStarted(roundStart, roundId, roundDuration);
     }
 
     function addAdmin(address _admin) public onlyOwner {
@@ -90,7 +90,7 @@ contract MVPCLR is Ownable {
         require(!isBlacklisted[addr], "Patron address is blacklisted");
         isPatron[addr] = true;
         emit PatronAdded(addr);
-        patronCount = patronCount + 1;
+
     }
 
     function donate(address[] memory patronAddresses, uint256[] memory amounts) public payable {
@@ -103,7 +103,7 @@ contract MVPCLR is Ownable {
             require(!isBlacklisted[_msgSender()], "Sender address is blacklisted");
             require(isPatron[patronAddress], "CLR:donate - Not a valid recipient");
             donations.push(Donation(patronAddress, amount));
-            emit Donate(tx.origin, _msgSender(), amount, patronAddress, id);
+            emit Donate(tx.origin, _msgSender(), amount, patronAddress, roundId);
         }
          require(totalAmount <= msg.value, "CLR:donate - Total amount donated is greater than the value sent");
     }
