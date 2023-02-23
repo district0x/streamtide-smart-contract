@@ -30,6 +30,12 @@ contract MVPCLR is Ownable {
         uint256 roundId
     );
 
+    event FailedDistribute(
+        address receiver,
+        uint256 amount
+    );
+
+
     uint256 public roundStart;
     uint256 public roundDuration;
 
@@ -106,20 +112,32 @@ contract MVPCLR is Ownable {
             emit Donate(tx.origin, _msgSender(), amount, patronAddress, roundId);
         }
          require(totalAmount <= msg.value, "CLR:donate - Total amount donated is greater than the value sent");
+         //transfer the donated funds to the contract
+         payable(address(this)).transfer(msg.value);
+    
     }
 
     function distribute(uint256 _maxProcess) external onlyAdmin {
-        require(roundIsClosed(), "Round is still open");
-        uint256 processed = 0;
-        while(index_of_last_processed_donation + int256(processed) < int256(donations.length)-1 && processed < _maxProcess) {
-            Donation memory donation = donations[uint256(index_of_last_processed_donation+1)+processed];
-            payable(donation.receiver).transfer(donation.amount);
+    require(roundIsClosed(), "Round is still open");
+    uint256 processed = 0;
+    while(index_of_last_processed_donation + int256(processed) < int256(donations.length)-1 && processed < _maxProcess) {
+        Donation memory donation = donations[uint256(index_of_last_processed_donation+1)+processed];
+        bool success = payable(donation.receiver).send(donation.amount);
+        if (success) {
             emit Distribute(donation.receiver, donation.amount);
-            processed = processed + 1;
+        } else {
+            emit FailedDistribute(donation.receiver, donation.amount);
         }
-        index_of_last_processed_donation += int256(processed);
-
+        processed = processed + 1;
     }
+    index_of_last_processed_donation += int256(processed);
+    }
+
+    //fail safe. Should be multisig. Bring this up on the call
+    function withdrawFunds(uint256 amount) external onlyOwner {
+    require(address(this).balance >= amount, "Insufficient funds in contract");
+    payable(owner()).transfer(amount);
+}
     
     // receive donation for the matching pool
     receive() external payable {
